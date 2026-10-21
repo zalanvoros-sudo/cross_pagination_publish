@@ -1,6 +1,34 @@
 <!doctype html>
 <html lang="en">
 <head>
+<script>
+(function (m, a, z, e) {
+  var s, t, u, v;
+  try {
+    t = m.sessionStorage.getItem('maze-us');
+  } catch (err) {}
+
+  if (!t) {
+    t = new Date().getTime();
+    try {
+      m.sessionStorage.setItem('maze-us', t);
+    } catch (err) {}
+  }
+
+  u = document.currentScript || (function () {
+    var w = document.getElementsByTagName('script');
+    return w[w.length - 1];
+  })();
+  v = u && u.nonce;
+
+  s = a.createElement('script');
+  s.src = z + '?apiKey=' + e;
+  s.async = true;
+  if (v) s.setAttribute('nonce', v);
+  a.getElementsByTagName('head')[0].appendChild(s);
+  m.mazeUniversalSnippetApiKey = e;
+})(window, document, 'https://snippet.maze.co/maze-universal-loader.js', 'bf70bf5a-f819-443f-9895-f5a3e8314250');
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Studio My Library Prototype</title>
@@ -298,6 +326,7 @@ function resetAll(){
   ui={tray:false, bulkMenu:false, rowMenu:null, modal:null, drawer:false};
   clearTimeout(toastTimer); document.getElementById('toastHost').innerHTML='';
   render();
+  setState('library');
 }
 function visible(){
   const list=media.filter(m=>{
@@ -317,6 +346,25 @@ function view(){
   const pages=Math.max(1,Math.ceil(total/PAGE)); page=Math.min(Math.max(1,page),pages);
   return {all,total,pages,rows:all.slice((page-1)*PAGE,page*PAGE)};
 }
+/* Maze tracking: mirror key prototype states in the URL (History API, no reload) */
+let urlState=null, lastBase='library';
+function setState(s,remember=true){
+  if(remember) lastBase=s;
+  if(s===urlState) return;
+  const first=urlState===null; urlState=s;
+  try{ history[first?'replaceState':'pushState'](null,'','?state='+s); }catch(err){}
+}
+const baseState=()=>filter==='unpub'?'unpublished':'library';
+function selUrl(){
+  const {total,rows}=view(), N=selected.size;
+  if(N===0) return baseState();
+  const onPage=rows.filter(m=>selected.has(m.id)).length;
+  if(N===total&&total>PAGE) return 'all-results-selected';
+  if(onPage===N&&onPage===rows.length) return 'page-selected';
+  if(onPage<N) return 'cross-page-selected';
+  return baseState();
+}
+const syncSel=()=>setState(selUrl());
 const plural=(n,s,p)=>n+' '+(n===1?s:p||s+'s');
 
 /* ---------- render ---------- */
@@ -524,7 +572,7 @@ document.addEventListener('click',e=>{
   if(t.closest('#filterBtn')){ draft=filter; ui.tray=true; ui.bulkMenu=false; ui.rowMenu=null; return renderOverlaysOnly(); }
   if(t.closest('#bulkBtn')){ ui.bulkMenu=!ui.bulkMenu; ui.rowMenu=null; return renderOverlaysOnly(); }
   const pg=t.closest('[data-page]');
-  if(pg){ if(pg.disabled||pg.hasAttribute('aria-current')) return; page=+pg.dataset.page; ui.bulkMenu=ui.rowMenu=null; render(); const c=document.querySelector('.crumb'); if(c) c.scrollIntoView({block:'start'}); return; }
+  if(pg){ if(pg.disabled||pg.hasAttribute('aria-current')) return; page=+pg.dataset.page; ui.bulkMenu=ui.rowMenu=null; render(); { const u=selUrl(); setState(u==='cross-page-selected'&&page===2?'page-2-selection':u); } const c=document.querySelector('.crumb'); if(c) c.scrollIntoView({block:'start'}); return; }
   const sb=t.closest('[data-sort]');
   if(sb){ const k=sb.dataset.sort; sort=sort.key===k?{key:k,dir:sort.dir==='asc'?'desc':'asc'}:{key:k,dir:k==='title'?'asc':'desc'}; page=1; ui.bulkMenu=ui.rowMenu=null; return render(); }
   const rowBtn=t.closest('[data-row]');
@@ -539,15 +587,15 @@ document.addEventListener('click',e=>{
       case 'openDrawer': ui.drawer=true; ui.bulkMenu=ui.rowMenu=null; break;
       case 'closeDrawer': ui.drawer=false; break;
       case 'trayReset': draft='all'; break;
-      case 'applyFilter': filter=draft; page=1; ui.tray=false; selected.clear(); return render();
-      case 'clearFilter': filter='all'; page=1; selected.clear(); return render();
-      case 'selectAllResults': visible().forEach(m=>selected.add(m.id)); return render();
-      case 'clearSelection': selected.clear(); ui.bulkMenu=false; return render();
-      case 'deselectAll': selected.clear(); ui.bulkMenu=false; return render();
-      case 'bulkPublish': ui.modal={mode:'bulk',ids:[...selected]}; ui.bulkMenu=false; break;
-      case 'rowPublish': ui.modal={mode:'row',ids:[+a.dataset.id]}; ui.rowMenu=null; break;
-      case 'closeModal': ui.modal=null; break;
-      case 'reviewCaptions': { const m=media.find(x=>x.id===+a.dataset.id); ui.modal=null; toast(`Prototype: this would open Manage captions for \u201c${esc(m.t)}\u201d.`,true); break; }
+      case 'applyFilter': filter=draft; page=1; ui.tray=false; selected.clear(); render(); return setState(baseState());
+      case 'clearFilter': filter='all'; page=1; selected.clear(); render(); return setState(baseState());
+      case 'selectAllResults': visible().forEach(m=>selected.add(m.id)); render(); return syncSel();
+      case 'clearSelection': selected.clear(); ui.bulkMenu=false; render(); return setState('selection-cleared');
+      case 'deselectAll': selected.clear(); ui.bulkMenu=false; render(); return setState(baseState());
+      case 'bulkPublish': ui.modal={mode:'bulk',ids:[...selected]}; ui.bulkMenu=false; setState('publish-confirmation',false); break;
+      case 'rowPublish': ui.modal={mode:'row',ids:[+a.dataset.id]}; ui.rowMenu=null; setState('publish-confirmation',false); break;
+      case 'closeModal': ui.modal=null; setState(lastBase); break;
+      case 'reviewCaptions': { const m=media.find(x=>x.id===+a.dataset.id); ui.modal=null; setState(lastBase); toast(`Prototype: this would open Manage captions for \u201c${esc(m.t)}\u201d.`,true); break; }
       case 'confirmPublish': return confirmPublish();
     }
     return renderOverlaysOnly();
@@ -562,17 +610,17 @@ document.addEventListener('change',e=>{
   if(t.id==='mobSort'){ const [k,d]=t.value.split(':'); sort={key:k,dir:d}; page=1; ui.bulkMenu=false; return render(); }
   if(t.id==='selAll'||t.id==='selAllM'){
     view().rows.forEach(m=>{ t.checked?selected.add(m.id):selected.delete(m.id); });
-    ui.bulkMenu=false; return render();
+    ui.bulkMenu=false; render(); return syncSel();
   }
   if(t.dataset.id && t.type==='checkbox'){
     const id=+t.dataset.id; t.checked?selected.add(id):selected.delete(id);
-    ui.bulkMenu=false; return render();
+    ui.bulkMenu=false; render(); return syncSel();
   }
 });
 
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape') return;
-  if(ui.modal) ui.modal=null; else if(ui.tray) ui.tray=false; else if(ui.drawer) ui.drawer=false; else ui.bulkMenu=ui.rowMenu=null;
+  if(ui.modal){ ui.modal=null; setState(lastBase); } else if(ui.tray) ui.tray=false; else if(ui.drawer) ui.drawer=false; else ui.bulkMenu=ui.rowMenu=null;
   renderOverlaysOnly();
 });
 
@@ -584,6 +632,7 @@ function confirmPublish(){
   ui.modal=null; selected.clear();
   render();
   toast(`${plural(n,'caption')} published.`);
+  setState('published');
 }
 
 resetAll();
